@@ -128,21 +128,45 @@ void CalculateHash(const std::vector<unsigned char>& data, std::vector<unsigned 
 
 void Encrypt()
 {
+    std::vector<unsigned char> plainText;
+    ReadFile("plain_text", plainText);
+
+    std::vector<unsigned char> hash;
+    CalculateHash(plainText, hash);
+
+    std::vector<unsigned char> chipherText;
+    EncryptAes(plainText, chipherText);
+
+    WriteFile("chipher_text", chipherText);
+
+    AppendToFile("chipher_text", hash);
+}
+
+void Decrypt()
+{
     std::vector<unsigned char> chipherText;
     ReadFile("chipher_text", chipherText);
 
-    //std::vector<unsigned char> hash;
-    //CalculateHash(chipherText, hash);
+    std::vector<unsigned char> hash;
 
+    std::vector<unsigned char> hashText(chipherText.begin() + chipherText.size() - SHA256_DIGEST_LENGTH, chipherText.end());
+    chipherText.erase(chipherText.begin() + chipherText.size() - SHA256_DIGEST_LENGTH, chipherText.end());
+    
     std::vector<unsigned char> plainText;
-    chipherText.erase(chipherText.begin() + chipherText.size() - 32, chipherText.end());
-    //EncryptAes(plainText, chipherText);
 
     DecryptAes(chipherText, plainText);
+    CalculateHash(plainText, hash);
 
-    WriteFile("plainText", plainText);
-
-   // AppendToFile("plainText", hash);
+    if (hash == hashText)
+    {
+        std::cout << "Hash correct" << std::endl;
+        WriteFile("plainText", plainText);
+    }
+    else
+    {
+        std::cout << "Hash incorrect" << std::endl;
+    }
+    
 }
 
 int main()
@@ -151,7 +175,7 @@ int main()
     try
     {
         PasswordToKey(pass);
-        Encrypt();
+        Decrypt();
     }
     catch (const std::runtime_error& ex)
     {
