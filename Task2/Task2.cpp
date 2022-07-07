@@ -1,8 +1,11 @@
-#include <string>
+﻿#include <string>
 #include <vector>
 #include <fstream>
 #include <exception>
 #include <iostream>
+#include <thread>
+#include <mutex>
+#include <chrono>
 
 #include "openssl/evp.h"
 #include <openssl/aes.h>
@@ -33,13 +36,6 @@ void WriteFile(const std::string& filePath, const std::vector<unsigned char>& bu
     fileStream.close();
 }
 
-void AppendToFile(const std::string& filePath, const std::vector<unsigned char>& buf)
-{
-    std::basic_ofstream<unsigned char> fileStream(filePath, std::ios::binary | std::ios::app);
-    fileStream.write(&buf[0], buf.size());
-    fileStream.close();
-}
-
 void PasswordToKey(const std::vector<unsigned char>& password)
 {
     OpenSSL_add_all_digests();
@@ -50,7 +46,7 @@ void PasswordToKey(const std::vector<unsigned char>& password)
     }
 
     const unsigned char* salt = NULL;
-    if (!EVP_BytesToKey(EVP_aes_128_cbc(), EVP_md5(), salt,
+    if (!EVP_BytesToKey(EVP_aes_128_cbc(), EVP_md5(), nullptr,
         &password[0],
         password.size(), 1, key, iv))
     {
@@ -116,32 +112,16 @@ bool DecryptAes(const std::vector<unsigned char> chipherText, std::vector<unsign
     return 1;
 }
 
-void CalculateHash(const std::vector<unsigned char>& data, std::vector<unsigned char>& hash)
+void CalculateHash(unsigned char* data, size_t size, std::vector<unsigned char>& hash)
 {
     std::vector<unsigned char> hashTmp(SHA256_DIGEST_LENGTH);
 
     SHA256_CTX sha256;
     SHA256_Init(&sha256);
-    SHA256_Update(&sha256, &data[0], data.size());
+    SHA256_Update(&sha256, data, size);
     SHA256_Final(&hashTmp[0], &sha256);
 
     hash.swap(hashTmp);
-}
-
-void Encrypt()
-{
-    std::vector<unsigned char> plainText;
-    ReadFile("plain_text", plainText);
-
-    std::vector<unsigned char> hash;
-    CalculateHash(plainText, hash);
-
-    std::vector<unsigned char> chipherText;
-    EncryptAes(plainText, chipherText);
-
-    WriteFile("chipher_text", chipherText);
-
-    AppendToFile("chipher_text", hash);
 }
 
 void Decrypt()
@@ -156,49 +136,99 @@ void Decrypt()
 
     std::vector<unsigned char> plainText;
 
-    std::vector<unsigned char> bu = { 'a','b','c' };
-
-    for (unsigned char a = 'k'; a <= 'z'; ++a)
+    OpenSSL_add_all_digests();
+    const EVP_MD* dgst = EVP_get_digestbyname("md5");
+    if (!dgst)
     {
-        for (unsigned char b = '0'; b <= 'z'; ++b)
+        throw std::runtime_error("no such digest");
+    }
+    std::vector<unsigned char> chipherTextBuf(chipherText.size() + AES_BLOCK_SIZE);
+
+    const std::chrono::time_point<std::chrono::steady_clock> start =
+        std::chrono::steady_clock::now();
+
+    int passSize = 4;
+    unsigned char* pass = new unsigned char[passSize + 1];
+    pass[passSize] = '\0';
+
+    for (pass[0] = '0'; pass[0] <= 'z'; ++pass[0])
+    {
+        for (pass[1] = '0'; pass[1] <= 'z'; ++pass[1])
         {
-            for (unsigned char c = '0'; c <= 'z'; ++c)
+            for (pass[2] = '0'; pass[2] <= 'z'; ++pass[2])
             {
-                for (unsigned char d = '0'; d <= 'z'; ++d)
+                for (pass[3] = '0'; pass[3] <= 'z'; ++pass[3])
                 {
-                    PasswordToKey({ a,b,c,d });
-                    if (DecryptAes(chipherText, plainText))
+
+                    if (!EVP_BytesToKey(EVP_aes_128_cbc(), EVP_md5(), nullptr, pass, passSize, 1, key, iv))
                     {
-                        CalculateHash(plainText, hash);
+                        throw std::runtime_error("EVP_BytesToKey failed");
+                    }
+
+                    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+                    if (!EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, iv))
+                    {
+                        throw std::runtime_error("EncryptInit error");
+                    }
+
+                    
+                    int chipherTextSize = 0;
+                    if (!EVP_DecryptUpdate(ctx, &chipherTextBuf[0], &chipherTextSize, &chipherText[0], chipherText.size())) {
+                        EVP_CIPHER_CTX_free(ctx);
+                        throw std::runtime_error("Encrypt error");
+                    }
+
+                    int lastPartLen = 0;
+                    if (!EVP_DecryptFinal_ex(ctx, &chipherTextBuf[0] + chipherTextSize, &lastPartLen)) {
+                        EVP_CIPHER_CTX_free(ctx);
+                        goto next;
+                    }
+                    chipherTextSize += lastPartLen;
+                    //chipherTextBuf.erase(chipherTextBuf.begin() + chipherTextSize, chipherTextBuf.end());
+
+                    //plainText.swap(chipherTextBuf);
+
+                    EVP_CIPHER_CTX_free(ctx);
+
+                        
+
+                        CalculateHash(&chipherTextBuf[0], chipherTextSize, hash);
 
                         if (hash == hashText)
                         {
+                            const auto end = std::chrono::steady_clock::now();
+
+                            std::cout << "Time: "
+                                << std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() << "micro sec = "
+                                << (end - start) / std::chrono::microseconds(1) << "ms = " // almost equivalent form of the above, but
+                                << (end - start) / std::chrono::seconds(1) << "s.\n";  // using milliseconds and seconds accordingly
+
                             std::cout << "Hash correct" << std::endl;
-                            std::cout << a << b << c << d << std::endl;
-                            WriteFile("plainText", plainText);
+                            std::cout << pass << std::endl;
+                            //WriteFile("plainText", plainText);
                             system("pause");
                             break;
                         }
-                    }
-                    if (d == '9')
-                        d = 'a';
+                    next:;
+                    if (pass[3] == '9')
+                        pass[3] = 'a';
                 }
 
-                if (c == '9')
-                    c = 'a';
+                if (pass[2] == '9')
+                    pass[2] = 'a';
             }
 
-            if (b == '9')
-                b = 'a';
+            if (pass[1] == '9')
+                pass[1] = 'a';
         }
 
-        if (a == '9')
-            a = 'a';
+        if (pass[0] == '9')
+            pass[0] = 'a';
 
-        std::cout << a << std::endl;
+        std::cout << pass[0] << std::endl;
     }
     
-
+    
 }
 
 int main()
