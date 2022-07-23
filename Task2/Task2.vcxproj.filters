@@ -18,5 +18,13 @@
     <ClCompile Include="Task2.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Decryptor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Decryptor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
