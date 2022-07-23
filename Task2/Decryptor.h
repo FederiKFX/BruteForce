@@ -23,7 +23,7 @@ private:
     std::vector<unsigned char> m_symbols;
     std::vector<size_t> m_curIndex;
 
-    std::vector<unsigned char> m_pass;
+    unsigned char* m_pass;
     size_t m_passSize;
 
     std::vector<unsigned char> m_chipherText;

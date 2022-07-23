@@ -10,8 +10,11 @@ Decryptor::Decryptor(const std::vector<unsigned char>& chipherText, const std::v
     : m_chipherText(chipherText), m_symbols(symbols), m_passSize(passSize)
 {
     m_hashTmp.resize(SHA256_DIGEST_LENGTH);
-    m_pass.resize(m_passSize + 1, m_symbols[0]);
-    m_pass.back() = '\0';
+    m_pass = new unsigned char[m_passSize + 1];
+    for (size_t i = 0; i < m_passSize; i++)
+        m_pass[i] = m_symbols[0];
+
+    m_pass[passSize] = '\0';
 
     m_curIndex.resize(m_passSize, 0);
 }
@@ -36,7 +39,7 @@ bool Decryptor::Decrypt()
     while (true)
     {
         nextPass();
-        if (!EVP_BytesToKey(EVP_aes_128_cbc(), EVP_md5(), nullptr, &m_pass[0], m_passSize, 1, m_key, m_iv))
+        if (!EVP_BytesToKey(EVP_aes_128_cbc(), EVP_md5(), nullptr, m_pass, m_passSize, 1, m_key, m_iv))
         {
             m_info = "EVP_BytesToKey failed";
             return 0;
@@ -60,7 +63,7 @@ bool Decryptor::Decrypt()
         int lastPartLen = 0;
         if (!EVP_DecryptFinal_ex(ctx, &chipherTextBuf[0] + chipherTextSize, &lastPartLen)) {
             EVP_CIPHER_CTX_free(ctx);
-            //std::cout << m_pass.data() << std::endl;
+            std::cout << m_pass << std::endl;
             goto next;
         }
         chipherTextSize += lastPartLen;
@@ -79,7 +82,7 @@ bool Decryptor::Decrypt()
                 << (end - start) / std::chrono::seconds(1) << "s.\n";  // using milliseconds and seconds accordingly
 
             std::cout << "Hash correct" << std::endl;
-            std::cout << m_pass.data() << std::endl;
+            std::cout << m_pass << std::endl;
             return 1;
         }
     next:;
